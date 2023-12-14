@@ -1,13 +1,15 @@
+#include <atomic>
+#include <fstream>
+#include <functional>
+#include <iostream>
+#include <mutex>
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/time.h>
-#include <fstream>
-#include <iostream>
-#include <vector>
 #include <thread>
-#include <mutex>
-#include <functional>
-#include <atomic>
+#include <vector>
+
+#include "mybarrier.h"
 using namespace std;
 // • Traverse over all landscape points
 // ◦ 1) Receive a new raindrop (if it is still raining) for each point.
@@ -15,25 +17,36 @@ using namespace std;
 // ◦ 3a) Calculate the number of raindrops that will next trickle to the lowest
 // neighbor(s) • Make a second traversal over all landscape points ◦ 3b) For
 // each point, use the calculated number of raindrops that will trickle to the
-// lowest neighbor(s) to update the number of raindrops at each lowest neighbor,
-// if applicable
+// lowest neighbor(s) to update the number of raindrops at each lowest
+// neighbor, if applicable
 mutex mtx;
+double calc_time(struct timespec start, struct timespec end) {
+  double start_sec =
+      (double)start.tv_sec * 1000000000.0 + (double)start.tv_nsec;
+  double end_sec = (double)end.tv_sec * 1000000000.0 + (double)end.tv_nsec;
+
+  if (end_sec < start_sec) {
+    return 0;
+  } else {
+    return end_sec - start_sec;
+  }
+}
 class Neighbors {
- public:
+public:
   int n;
-  int* neighbor_xs;
-  int* neighbor_ys;
+  int *neighbor_xs;
+  int *neighbor_ys;
   Neighbors() : n(0), neighbor_xs(nullptr), neighbor_ys(nullptr) {}
   Neighbors(int num) : n(num) {
-    int* neighbor_xs = new int[n];
-    int* neighbor_ys = new int[n];
+    int *neighbor_xs = new int[n];
+    int *neighbor_ys = new int[n];
   }
   ~Neighbors() {
     delete[] neighbor_xs;
     delete[] neighbor_ys;
   }
 };
-void find_neighbors(Neighbors** neighbors, int dim, int** topo) {
+void find_neighbors(Neighbors **neighbors, int dim, int **topo) {
   int directions[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
   for (int x = 0; x < dim; x++) {
     for (int y = 0; y < dim; y++) {
@@ -69,19 +82,19 @@ void find_neighbors(Neighbors** neighbors, int dim, int** topo) {
     }
   }
 }
-void receive_raindrop(float** capacity, int dim, int start_x, int end_x) {
+void receive_raindrop(float **capacity, int dim, int start_x, int end_x) {
   for (int i = start_x; i < end_x; ++i) {
     for (int j = 0; j < dim; ++j) {
       capacity[i][j] += 1.0;
     }
   }
 }
-bool absorb(float** capacity, int dim, float** absorbed, float absorb_rate,
- atomic<bool>& all_absorbed, int start_x, int end_x){  
-  for (int i = start_x; i < end_x; ++i){
+void absorb(float **capacity, int dim, float **absorbed, float absorb_rate,
+            atomic<bool> &all_absorbed, int start_x, int end_x) {
+  for (int i = start_x; i < end_x; ++i) {
     for (int j = 0; j < dim; ++j) {
       float rate = absorb_rate;
-      if (capacity[i][j] <= absorb_rate){
+      if (capacity[i][j] <= absorb_rate) {
         rate = capacity[i][j];
       }
       capacity[i][j] -= rate;
@@ -91,11 +104,12 @@ bool absorb(float** capacity, int dim, float** absorbed, float absorb_rate,
       }
     }
   }
-  return all_absorbed;
 }
-void trickle(float** capacity, Neighbors** neighbors, int dim, vector<vector<float> >& trickled
-, int start_x, int end_x){ 
-  for (int x = start_x; x < end_x; ++x){
+void trickle(float **capacity, Neighbors **neighbors, int dim,
+             vector<vector<float>> &trickled, int start_x, int end_x,
+             MyBarrier &barrier) {
+  //    cout<<start_x<<":"<<end_x<<endl;
+  for (int x = start_x; x < end_x; ++x) {
     for (int y = 0; y < dim; y++) {
       // if no neighbors lower than itself, continue.
       int n = neighbors[x][y].n;
@@ -107,55 +121,42 @@ void trickle(float** capacity, Neighbors** neighbors, int dim, vector<vector<flo
         trickle_away = capacity[x][y];
       }
       capacity[x][y] -= trickle_away;
-        if(x==start_x || x==end_x-1){
-            unique_lock<mutex> lock(mtx);
-            for (int i = 0; i < n; i++) {
-                trickled[neighbors[x][y].neighbor_xs[i]]
-                    [neighbors[x][y].neighbor_ys[i]] += trickle_away / n;
-            }
-            lock.unlock();
-        }else{
-        for (int i = 0; i < n; i++) {
-            trickled[neighbors[x][y].neighbor_xs[i]]
-                    [neighbors[x][y].neighbor_ys[i]] += trickle_away / n;
+      for (int i = 0; i < n; i++) {
+        int next_x = neighbors[x][y].neighbor_xs[i];
+        int next_y = neighbors[x][y].neighbor_ys[i];
+        if (next_x <= start_x || next_x >= end_x - 1) {
+          unique_lock<mutex> lock(mtx);
+          trickled[neighbors[x][y].neighbor_xs[i]]
+                  [neighbors[x][y].neighbor_ys[i]] += trickle_away / n;
+          lock.unlock();
+        } else {
+          trickled[neighbors[x][y].neighbor_xs[i]]
+                  [neighbors[x][y].neighbor_ys[i]] += trickle_away / n;
         }
+      }
     }
   }
-  // second traversal
+  barrier.Wait();
   for (int x = start_x; x < end_x; x++) {
     for (int y = 0; y < dim; y++) {
-        if(x==start_x || x==end_x-1){
-            unique_lock<mutex> lock(mtx);
-            capacity[x][y] += trickled[x][y];
-            lock.unlock();
-        }else
-            capacity[x][y] += trickled[x][y];
-        
-
+      capacity[x][y] += trickled[x][y];
     }
   }
 }
-double calc_time(struct timespec start, struct timespec end) {
-  double start_sec = (double)start.tv_sec*1000000000.0 + (double)start.tv_nsec;
-  double end_sec = (double)end.tv_sec*1000000000.0 + (double)end.tv_nsec;
 
-  if (end_sec < start_sec) {
-    return 0;
-  } else {
-    return end_sec - start_sec;
+void simulate_step(float **capacity, int dim, float **absorbed,
+                   float absorb_rate, Neighbors **neighbors,
+                   vector<vector<float>> &trickled, int start_x, int end_x,
+                   atomic<bool> &all_absorbed, bool rain, MyBarrier &barrier) {
+  if (rain) {
+    receive_raindrop(capacity, dim, start_x, end_x);
   }
+  absorb(capacity, dim, absorbed, absorb_rate, all_absorbed, start_x, end_x);
+  trickle(capacity, neighbors, dim, trickled, start_x, end_x, barrier);
+  return;
 }
 
-void step(float** capacity, int dim, float** absorbed, float absorb_rate,
- Neighbors** neighbors, int start_x, int end_x, atomic<bool>& all_absorbed, bool rain){
-    if(rain){
-        receive_raindrop(capacity, dim, start_x, end_x);
-    }
-    atomic<bool> all_absorbed(true);
-    vector<vector<float> > trickled(dim, vector<float>(dim, 0.0));
-}
-
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
   // check inputs
   if (argc != 6) {
     std::cout << "Usage: ./rainfall <P> <M> <A> <N> <elevation_file>"
@@ -168,14 +169,14 @@ int main(int argc, char* argv[]) {
   int rain_drop_steps = stoi(argv[2]);
   float absorb_rate = stof(argv[3]);
   int dim = stoi(argv[4]);
-  // cout<<"args: "<<thread_n<< " "<<rain_drop_steps<< " "<<absorb_rate<< " "<<dim<<endl;
   string elevation_file = argv[5];
+
   // allocate arrays
-  int** topo = new int*[dim];
-  float** capacity = new float*[dim];
-  float** absorbed = new float*[dim];
-  int** trickle_direction = new int*[dim];
-  Neighbors** neighbors = new Neighbors*[dim];
+  int **topo = new int *[dim];
+  float **capacity = new float *[dim];
+  float **absorbed = new float *[dim];
+  int **trickle_direction = new int *[dim];
+  Neighbors **neighbors = new Neighbors *[dim];
   for (int i = 0; i < dim; ++i) {
     topo[i] = new int[dim];
     capacity[i] = new float[dim];
@@ -199,27 +200,44 @@ int main(int argc, char* argv[]) {
   clock_gettime(CLOCK_MONOTONIC, &start_time);
   // raindrop simulation
   find_neighbors(neighbors, dim, topo);
-  bool all_absorbed = false;
   int step = 0;
-  while (!all_absorbed) {
+  atomic<bool> all_absorbed(false);
+  while (all_absorbed.load() == false) {
+    bool rain = false;
     if (step < rain_drop_steps) {
-      receive_raindrop(capacity, dim);
+      rain = true;
     }
-    all_absorbed = absorb(capacity, dim, absorbed, absorb_rate);
-    trickle(capacity, neighbors, dim);
+    all_absorbed.store(true);
+    vector<vector<float>> trickled(dim, vector<float>(dim, 0.0));
+    int start_x = 0;
+    int row_step = dim / thread_n;
+    vector<std::thread> threads;
+    MyBarrier barrier(thread_n);
+    for (int i = 0; i < thread_n; i++) {
+      int end_x = min(row_step + start_x, dim);
+      threads.push_back(
+          thread(std::bind(simulate_step, capacity, dim, absorbed, absorb_rate,
+                           neighbors, ref(trickled), start_x, end_x,
+                           ref(all_absorbed), rain, ref(barrier))));
+      start_x = end_x;
+    }
+    for (thread &t : threads) {
+      t.join();
+    }
     step++;
   }
   clock_gettime(CLOCK_MONOTONIC, &end_time);
   // output
-  cout<<"it took "<<step<<" steps to complete\n";
+  cout << "it took " << step << " steps to complete\n";
   double elapsed_ns = calc_time(start_time, end_time);
-  printf("Runtime = %f s\n", elapsed_ns/1000000000);
+  printf("Runtime = %f s\n", elapsed_ns / 1000000000);
   for (int i = 0; i < dim; i++) {
     for (int j = 0; j < dim; j++) {
       cout << absorbed[i][j] << " ";
     }
     cout << endl;
   }
+
   // release resources
   for (int i = 0; i < dim; ++i) {
     delete[] topo[i];

@@ -1,0 +1,9 @@
+*.o
+
+*.exe
+*.dll
+*.so
+*.dylib
+hw5/
+.vscode/
+*.txt

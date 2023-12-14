@@ -16,21 +16,21 @@ using namespace std;
 // lowest neighbor(s) to update the number of raindrops at each lowest neighbor,
 // if applicable
 class Neighbors {
- public:
+public:
   int n;
-  int* neighbor_xs;
-  int* neighbor_ys;
+  int *neighbor_xs;
+  int *neighbor_ys;
   Neighbors() : n(0), neighbor_xs(nullptr), neighbor_ys(nullptr) {}
   Neighbors(int num) : n(num) {
-    int* neighbor_xs = new int[n];
-    int* neighbor_ys = new int[n];
+    int *neighbor_xs = new int[n];
+    int *neighbor_ys = new int[n];
   }
   ~Neighbors() {
     delete[] neighbor_xs;
     delete[] neighbor_ys;
   }
 };
-void find_neighbors(Neighbors** neighbors, int dim, int** topo) {
+void find_neighbors(Neighbors **neighbors, int dim, int **topo) {
   int directions[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
   for (int x = 0; x < dim; x++) {
     for (int y = 0; y < dim; y++) {
@@ -66,14 +66,14 @@ void find_neighbors(Neighbors** neighbors, int dim, int** topo) {
     }
   }
 }
-void receive_raindrop(float** capacity, int dim) {
+void receive_raindrop(float **capacity, int dim) {
   for (int i = 0; i < dim; ++i) {
     for (int j = 0; j < dim; ++j) {
       capacity[i][j] += 1.0;
     }
   }
 }
-bool absorb(float** capacity, int dim, float** absorbed, float absorb_rate) {
+bool absorb(float **capacity, int dim, float **absorbed, float absorb_rate) {
   bool all_absorbed = true;
   for (int i = 0; i < dim; ++i) {
     for (int j = 0; j < dim; ++j) {
@@ -92,8 +92,8 @@ bool absorb(float** capacity, int dim, float** absorbed, float absorb_rate) {
   }
   return all_absorbed;
 }
-void trickle(float** capacity, Neighbors** neighbors, int dim) {
-  vector<vector<float> > trickled(dim, vector<float>(dim, 0.0));
+void trickle(float **capacity, Neighbors **neighbors, int dim) {
+  vector<vector<float>> trickled(dim, vector<float>(dim, 0.0));
   for (int x = 0; x < dim; x++) {
     for (int y = 0; y < dim; y++) {
       // if no neighbors lower than itself, continue.
@@ -121,8 +121,9 @@ void trickle(float** capacity, Neighbors** neighbors, int dim) {
   }
 }
 double calc_time(struct timespec start, struct timespec end) {
-  double start_sec = (double)start.tv_sec*1000000000.0 + (double)start.tv_nsec;
-  double end_sec = (double)end.tv_sec*1000000000.0 + (double)end.tv_nsec;
+  double start_sec =
+      (double)start.tv_sec * 1000000000.0 + (double)start.tv_nsec;
+  double end_sec = (double)end.tv_sec * 1000000000.0 + (double)end.tv_nsec;
 
   if (end_sec < start_sec) {
     return 0;
@@ -131,8 +132,7 @@ double calc_time(struct timespec start, struct timespec end) {
   }
 }
 
-
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
   // check inputs
   if (argc != 6) {
     std::cout << "Usage: ./rainfall <P> <M> <A> <N> <elevation_file>"
@@ -144,16 +144,17 @@ int main(int argc, char* argv[]) {
   int thread_n = stoi(argv[1]);
   int rain_drop_steps = stoi(argv[2]);
   float absorb_rate = stof(argv[3]);
-  
+
   int dim = stoi(argv[4]);
-  // cout<<"args: "<<thread_n<< " "<<rain_drop_steps<< " "<<absorb_rate<< " "<<dim<<endl;
+  // cout<<"args: "<<thread_n<< " "<<rain_drop_steps<< " "<<absorb_rate<< "
+  // "<<dim<<endl;
   string elevation_file = argv[5];
   // allocate arrays
-  int** topo = new int*[dim];
-  float** capacity = new float*[dim];
-  float** absorbed = new float*[dim];
-  int** trickle_direction = new int*[dim];
-  Neighbors** neighbors = new Neighbors*[dim];
+  int **topo = new int *[dim];
+  float **capacity = new float *[dim];
+  float **absorbed = new float *[dim];
+  int **trickle_direction = new int *[dim];
+  Neighbors **neighbors = new Neighbors *[dim];
   for (int i = 0; i < dim; ++i) {
     topo[i] = new int[dim];
     capacity[i] = new float[dim];
@@ -195,9 +196,9 @@ int main(int argc, char* argv[]) {
   }
   clock_gettime(CLOCK_MONOTONIC, &end_time);
   // output
-  cout<<"it took "<<step<<" steps to complete\n";
+  cout << "it took " << step << " steps to complete\n";
   double elapsed_ns = calc_time(start_time, end_time);
-  printf("Runtime = %f s\n", elapsed_ns/1000000000);
+  printf("Runtime = %f s\n", elapsed_ns / 1000000000);
   for (int i = 0; i < dim; i++) {
     for (int j = 0; j < dim; j++) {
       cout << absorbed[i][j] << " ";
